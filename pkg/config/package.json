@@ -1,5 +1,5 @@
 {
-    "name": "@repo/config",
+    "name": "@repo/validations",
     "version": "1.0.0",
     "private": true,
     "type": "module",

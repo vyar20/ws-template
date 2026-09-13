@@ -8,13 +8,13 @@ Aplikasi untuk mengirim pesan Slack ke **banyak tujuan sekaligus (bulk)**, baik 
 
 ## 1. Keputusan Final (hasil klarifikasi)
 
-| Topik | Keputusan |
-|---|---|
-| Mekanisme Slack | **Bot Token (Slack Web API)** — user simpan `xoxb-...` terenkripsi, kirim via `chat.postMessage` |
-| Penjadwalan | **Masuk scope** — ada job runner worker di dalam proses backend |
+| Topik                 | Keputusan                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------- |
+| Mekanisme Slack       | **Bot Token (Slack Web API)** — user simpan `xoxb-...` terenkripsi, kirim via `chat.postMessage`  |
+| Penjadwalan           | **Masuk scope** — ada job runner worker di dalam proses backend                                   |
 | Penerima (recipients) | **Pilih dari Slack API** — backend proxy `conversations.list` / `users.list`, user centang tujuan |
-| Role | **Admin + User** — admin kelola semua user & lihat semua; user kelola miliknya sendiri |
-| Router frontend | **react-router** dengan konvensi file-based di `src/app/` |
+| Role                  | **Admin + User** — admin kelola semua user & lihat semua; user kelola miliknya sendiri            |
+| Router frontend       | **react-router** dengan konvensi file-based di `src/app/`                                         |
 
 ---
 
@@ -38,13 +38,14 @@ Aplikasi untuk mengirim pesan Slack ke **banyak tujuan sekaligus (bulk)**, baik 
 
 `pkg/config` mengekspor tiga base config yang **wajib** dipakai ulang oleh semua package & app:
 
-| Export | File konsumen di package | Isi |
-|---|---|---|
-| `@repo/config/tsconfig` | `tsconfig.json` → `"extends": "@repo/config/tsconfig"` | strict, esnext, moduleResolution bundler, types bun |
-| `@repo/config/eslint` | `eslint.config.ts` → `import base from '@repo/config/eslint'` | js+ts recommended, consistent-type-imports, no-unused-vars |
-| `@repo/config/prettier` | `.prettierrc.ts` → `import base from '@repo/config/prettier'` | singleQuote, no semi, tailwind plugin |
+| Export                  | File konsumen di package                                      | Isi                                                        |
+| ----------------------- | ------------------------------------------------------------- | ---------------------------------------------------------- |
+| `@repo/config/tsconfig` | `tsconfig.json` → `"extends": "@repo/config/tsconfig"`        | strict, esnext, moduleResolution bundler, types bun        |
+| `@repo/config/eslint`   | `eslint.config.ts` → `import base from '@repo/config/eslint'` | js+ts recommended, consistent-type-imports, no-unused-vars |
+| `@repo/config/prettier` | `.prettierrc.ts` → `import base from '@repo/config/prettier'` | singleQuote, no semi, tailwind plugin                      |
 
 **Checklist setiap package/app baru** (semua package existing sudah mematuhi ini):
+
 1. `package.json` → tambah `"@repo/config": "workspace:*"` di `devDependencies`.
 2. `tsconfig.json` → `extends` `@repo/config/tsconfig` (boleh override `paths`/`include` saja).
 3. `eslint.config.ts` → re-export `base` (boleh tambah rule spesifik, mis. react hooks di frontend).
@@ -68,6 +69,7 @@ Sebelum mengeksekusi milestone apa pun, **cek skills yang tersedia** (baik skill
 ## 3. Status Saat Ini
 
 **Sudah ada:**
+
 - Workspace Bun (`apps/*`, `pkg/*`) + `pkg/config` (eslint, prettier, tsconfig).
 - `pkg/env` — validasi env via zod (`PORT`, `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `ENCRYPTION_KEY`).
 - `pkg/utils` — `fetcher`, `p` (tuple error), `ErrorHandler`, `HTTPCode`, `HTTPText`.
@@ -77,6 +79,7 @@ Sebelum mengeksekusi milestone apa pun, **cek skills yang tersedia** (baik skill
 - Prisma v7 terpasang, `prisma7.config.ts` siap. `.env` sudah berisi semua secret.
 
 **Belum ada:**
+
 - Model Prisma (schema masih kosong) & koneksi DB.
 - Better Auth (server + client) + role admin/user.
 - Modul token Slack (CRUD + encrypt/decrypt) & `slack-client`.
@@ -84,14 +87,12 @@ Sebelum mengeksekusi milestone apa pun, **cek skills yang tersedia** (baik skill
 - Job runner (scheduler).
 - Integrasi frontend: react-query, react-table, react-hook-form + zodResolver, react-router, halaman.
 
-**Perlu diperbaiki:**
-- `pkg/validations/package.json` `name` masih `@repo/utils` (salah, harus `@repo/validations`).
-
 ---
 
 ## 4. Arsitektur
 
 ### 4.1 Alur utama
+
 ```
 Login (Better Auth email+password)
   → User simpan Slack Bot Token (divalidasi via auth.test, disimpan terenkripsi)
@@ -103,18 +104,20 @@ Login (Better Auth email+password)
 ```
 
 ### 4.2 Enkripsi token
+
 - Algoritma: **AES-256-GCM** via Web Crypto (`crypto.subtle`), key dari `ENCRYPTION_KEY` (base64, 32 byte).
 - Simpan format `iv:ciphertext:tag` (base64) — IV random per token.
 - Token **hanya** didekripsi di memori saat mengirim. Tidak pernah dikirim ke frontend, tidak pernah di-log.
 
 ### 4.3 Slack Web API yang dipakai
-| Kebutuhan | Endpoint | Scope bot |
-|---|---|---|
-| Validasi token | `auth.test` | — |
-| List channel | `conversations.list` | `channels:read`, `groups:read` |
-| List user | `users.list` | `users:read` |
-| Kirim ke channel | `chat.postMessage` | `chat:write` |
-| Kirim DM | `conversations.open` → `chat.postMessage` | `im:write`, `chat:write` |
+
+| Kebutuhan        | Endpoint                                  | Scope bot                      |
+| ---------------- | ----------------------------------------- | ------------------------------ |
+| Validasi token   | `auth.test`                               | —                              |
+| List channel     | `conversations.list`                      | `channels:read`, `groups:read` |
+| List user        | `users.list`                              | `users:read`                   |
+| Kirim ke channel | `chat.postMessage`                        | `chat:write`                   |
+| Kirim DM         | `conversations.open` → `chat.postMessage` | `im:write`, `chat:write`       |
 
 `slack-client` (di `pkg/utils`) membungkus pemanggilan ini + handle rate limit (429 `Retry-After`) & error Slack (`ok:false`).
 
@@ -137,13 +140,14 @@ apps/backend/prisma/
 
 ```ts
 export default defineConfig({
-  schema: 'prisma',                       // folder → load schema.prisma + models/*.prisma
+  schema: 'prisma', // folder → load schema.prisma + models/*.prisma
   migrations: { path: 'prisma/migrations' },
   datasource: { url: process.env['DATABASE_URL'] }
 })
 ```
 
 ### `prisma/schema.prisma`
+
 ```prisma
 generator client {
   provider = "prisma-client"
@@ -156,6 +160,7 @@ datasource db {
 ```
 
 ### `prisma/models/auth.prisma`
+
 ```prisma
 // Better Auth core (User, Session, Account, Verification) — disesuaikan Better Auth
 
@@ -183,6 +188,7 @@ enum Role {
 ```
 
 ### `prisma/models/slack-token.prisma`
+
 ```prisma
 model SlackToken {
   id             String   @id @default(cuid())
@@ -202,6 +208,7 @@ model SlackToken {
 ```
 
 ### `prisma/models/message.prisma`
+
 ```prisma
 model Message {
   id           String        @id @default(cuid())
@@ -319,22 +326,22 @@ root/
 
 ## 7. Kontrak API (`/api/*`)
 
-| Method | Path | Auth | Deskripsi |
-|---|---|---|---|
-| `*` | `/api/auth/*` | — | Better Auth handler (sign-in/up/out, session) |
-| GET | `/api/me` | user | Profil + role user aktif |
-| GET | `/api/tokens` | user | List token milik user (tanpa nilai token) |
-| POST | `/api/tokens` | user | Tambah token (validasi `auth.test`, simpan terenkripsi) |
-| PATCH | `/api/tokens/:id` | user (owner) | Update label token |
-| DELETE | `/api/tokens/:id` | user (owner) | Hapus token |
-| GET | `/api/slack/:tokenId/channels` | user (owner) | Proxy `conversations.list` |
-| GET | `/api/slack/:tokenId/users` | user (owner) | Proxy `users.list` |
-| GET | `/api/messages` | user | List message milik user + status |
-| GET | `/api/messages/:id` | user (owner) | Detail message + status per target |
-| POST | `/api/messages` | user | Buat message (kirim langsung / jadwal) + targets |
-| DELETE | `/api/messages/:id` | user (owner) | Batalkan/hapus message (jika belum terkirim) |
-| GET | `/api/admin/users` | admin | List semua user |
-| PATCH | `/api/admin/users/:id` | admin | Ubah role / ban user |
+| Method | Path                           | Auth         | Deskripsi                                               |
+| ------ | ------------------------------ | ------------ | ------------------------------------------------------- |
+| `*`    | `/api/auth/*`                  | —            | Better Auth handler (sign-in/up/out, session)           |
+| GET    | `/api/me`                      | user         | Profil + role user aktif                                |
+| GET    | `/api/tokens`                  | user         | List token milik user (tanpa nilai token)               |
+| POST   | `/api/tokens`                  | user         | Tambah token (validasi `auth.test`, simpan terenkripsi) |
+| PATCH  | `/api/tokens/:id`              | user (owner) | Update label token                                      |
+| DELETE | `/api/tokens/:id`              | user (owner) | Hapus token                                             |
+| GET    | `/api/slack/:tokenId/channels` | user (owner) | Proxy `conversations.list`                              |
+| GET    | `/api/slack/:tokenId/users`    | user (owner) | Proxy `users.list`                                      |
+| GET    | `/api/messages`                | user         | List message milik user + status                        |
+| GET    | `/api/messages/:id`            | user (owner) | Detail message + status per target                      |
+| POST   | `/api/messages`                | user         | Buat message (kirim langsung / jadwal) + targets        |
+| DELETE | `/api/messages/:id`            | user (owner) | Batalkan/hapus message (jika belum terkirim)            |
+| GET    | `/api/admin/users`             | admin        | List semua user                                         |
+| PATCH  | `/api/admin/users/:id`         | admin        | Ubah role / ban user                                    |
 
 > Semua body divalidasi dengan schema dari `pkg/validations`. Ownership dicek server-side (cegah IDOR). Endpoint bulk send & auth diberi rate limit.
 
@@ -353,13 +360,14 @@ root/
 
 Struktur folder **mirror** dengan path URL. Setiap segmen route = satu folder di bawah `src/app/`, dan komponen halaman ada di `page.tsx` di folder tersebut.
 
-| Route | File |
-|---|---|
-| `/auth/sign-in` | `src/app/auth/sign-in/page.tsx` |
+| Route              | File                               |
+| ------------------ | ---------------------------------- |
+| `/auth/sign-in`    | `src/app/auth/sign-in/page.tsx`    |
 | `/admin/dashboard` | `src/app/admin/dashboard/page.tsx` |
-| `/messages/new` | `src/app/messages/new/page.tsx` |
+| `/messages/new`    | `src/app/messages/new/page.tsx`    |
 
 Aturan:
+
 - **`page.tsx`** → komponen UI untuk route itu (wajib).
 - **`layout.tsx`** (opsional) → layout bersama untuk semua child route di segmen itu (mis. `src/app/admin/layout.tsx` untuk guard admin + sidebar).
 - **`main.tsx`** → entry, render `<RouterProvider>`.
@@ -369,16 +377,16 @@ Aturan:
 
 ### 8.2 Daftar Halaman
 
-| Route | File | Akses | Deskripsi |
-|---|---|---|---|
-| `/auth/sign-in` | `src/app/auth/sign-in/page.tsx` | publik | Form email + password (react-hook-form + zodResolver) |
-| `/auth/sign-up` | `src/app/auth/sign-up/page.tsx` | publik | Form registrasi email + password |
-| `/dashboard` | `src/app/dashboard/page.tsx` | user | Ringkasan (jumlah token, message terjadwal/terkirim) |
-| `/tokens` | `src/app/tokens/page.tsx` | user | Kelola Slack token (tambah/hapus, uji koneksi) |
-| `/messages` | `src/app/messages/page.tsx` | user | List message + status (react-table), tombol compose |
-| `/messages/new` | `src/app/messages/new/page.tsx` | user | Compose: pilih token → pilih channel/user (fetch Slack) → tulis pesan → kirim sekarang / jadwal |
-| `/admin/dashboard` | `src/app/admin/dashboard/page.tsx` | admin | Ringkasan sistem |
-| `/admin/users` | `src/app/admin/users/page.tsx` | admin | Kelola user & role |
+| Route              | File                               | Akses  | Deskripsi                                                                                       |
+| ------------------ | ---------------------------------- | ------ | ----------------------------------------------------------------------------------------------- |
+| `/auth/sign-in`    | `src/app/auth/sign-in/page.tsx`    | publik | Form email + password (react-hook-form + zodResolver)                                           |
+| `/auth/sign-up`    | `src/app/auth/sign-up/page.tsx`    | publik | Form registrasi email + password                                                                |
+| `/dashboard`       | `src/app/dashboard/page.tsx`       | user   | Ringkasan (jumlah token, message terjadwal/terkirim)                                            |
+| `/tokens`          | `src/app/tokens/page.tsx`          | user   | Kelola Slack token (tambah/hapus, uji koneksi)                                                  |
+| `/messages`        | `src/app/messages/page.tsx`        | user   | List message + status (react-table), tombol compose                                             |
+| `/messages/new`    | `src/app/messages/new/page.tsx`    | user   | Compose: pilih token → pilih channel/user (fetch Slack) → tulis pesan → kirim sekarang / jadwal |
+| `/admin/dashboard` | `src/app/admin/dashboard/page.tsx` | admin  | Ringkasan sistem                                                                                |
+| `/admin/users`     | `src/app/admin/users/page.tsx`     | admin  | Kelola user & role                                                                              |
 
 Guard akses via `layout.tsx` per segmen: `src/app/layout.tsx` (require auth untuk area app), `src/app/admin/layout.tsx` (require role admin).
 
@@ -413,13 +421,13 @@ Guard akses via `layout.tsx` per segmen: `src/app/layout.tsx` (require auth untu
 
 Sudah ada di `apps/backend/.env` & divalidasi `pkg/env`:
 
-| Var | Fungsi |
-|---|---|
-| `PORT` | Port server (3000) |
-| `DATABASE_URL` | PostgreSQL |
-| `BETTER_AUTH_SECRET` | Secret Better Auth (≥32) |
-| `BETTER_AUTH_URL` | Base URL app |
-| `ENCRYPTION_KEY` | Key AES-GCM 32 byte (base64) untuk enkripsi token Slack |
+| Var                  | Fungsi                                                  |
+| -------------------- | ------------------------------------------------------- |
+| `PORT`               | Port server (3000)                                      |
+| `DATABASE_URL`       | PostgreSQL                                              |
+| `BETTER_AUTH_SECRET` | Secret Better Auth (≥32)                                |
+| `BETTER_AUTH_URL`    | Base URL app                                            |
+| `ENCRYPTION_KEY`     | Key AES-GCM 32 byte (base64) untuk enkripsi token Slack |
 
 > `.env` berisi secret nyata — sudah di-`.gitignore`. **Jangan** commit.
 
