@@ -5,3 +5,5 @@ node_modules
 **/generated
 
 .env
+
+prompt.txt
