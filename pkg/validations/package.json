@@ -1,5 +1,5 @@
 {
-    "name": "@repo/utils",
+    "name": "@repo/validations",
     "version": "1.0.0",
     "private": true,
     "type": "module",
@@ -7,7 +7,6 @@
         "del": "rm -rf node_modules dist"
     },
     "exports": {
-        ".": "./src/utils.ts",
         "./*": "./src/*.ts"
     },
     "devDependencies": {

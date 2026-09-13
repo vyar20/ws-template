@@ -175,10 +175,11 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  slackTokens   SlackToken[]
-  messages      Message[]
-  sessions      Session[]
-  accounts      Account[]
+  slackTokens        SlackToken[] @relation("UserSlackTokens")    // token PERSONAL milik user
+  createdSlackTokens SlackToken[] @relation("CreatedSlackTokens")  // token yang dibuat (mis. SHARED oleh admin)
+  messages           Message[]
+  sessions           Session[]
+  accounts           Account[]
 }
 
 enum Role {
@@ -189,21 +190,37 @@ enum Role {
 
 ### `prisma/models/slack-token.prisma`
 
+Token punya **dua tipe** (enum `SlackTokenType`):
+
+- **`SHARED`** — dibuat admin, `userId` **null**, bisa dipakai **semua user** saat compose.
+- **`PERSONAL`** — dibuat user, `userId` = pemilik, **hanya** bisa dipakai pemilik itu.
+
+`createdById` menyimpan siapa yang membuat token (admin untuk SHARED, user untuk PERSONAL) untuk audit.
+
 ```prisma
 model SlackToken {
-  id             String   @id @default(cuid())
-  userId         String
-  label          String                 // nama alias token dari user
-  encryptedToken String                 // AES-GCM: iv:ciphertext:tag
+  id             String         @id @default(cuid())
+  type           SlackTokenType @default(PERSONAL)   // SHARED (admin) | PERSONAL (user)
+  userId         String?                              // pemilik utk PERSONAL; null utk SHARED
+  createdById    String                               // pembuat (admin utk SHARED)
+  label          String                               // nama alias token
+  encryptedToken String                               // AES-GCM: iv:ciphertext:tag
   teamId         String?
   teamName       String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
-  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User?     @relation("UserSlackTokens", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy      User      @relation("CreatedSlackTokens", fields: [createdById], references: [id])
   messages       Message[]
 
   @@index([userId])
+  @@index([type])
+}
+
+enum SlackTokenType {
+  SHARED
+  PERSONAL
 }
 ```
 
@@ -213,7 +230,7 @@ model SlackToken {
 model Message {
   id           String        @id @default(cuid())
   userId       String
-  slackTokenId String
+  slackTokenId String?                    // null bila token dihapus → message di-CANCELLED agar bisa diedit user
   content      String                    // isi pesan (mendukung format Slack mrkdwn)
   status       MessageStatus @default(DRAFT)
   scheduledAt  DateTime?                 // null = kirim langsung
@@ -222,7 +239,7 @@ model Message {
   updatedAt    DateTime      @updatedAt
 
   user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  slackToken   SlackToken      @relation(fields: [slackTokenId], references: [id])
+  slackToken   SlackToken?     @relation(fields: [slackTokenId], references: [id], onDelete: SetNull)
   targets      MessageTarget[]
 
   @@index([userId])
@@ -236,6 +253,7 @@ enum MessageStatus {
   SENT
   PARTIALLY_FAILED
   FAILED
+  CANCELLED                              // token yang dipakai dihapus → user perlu edit ulang
 }
 
 model MessageTarget {
@@ -306,17 +324,17 @@ root/
          │  ├─ router.tsx        # definisi route → page.tsx / layout.tsx
          │  ├─ layout.tsx        # guard require-auth (area app)
          │  ├─ auth/
-         │  │  ├─ sign-in/page.tsx
-         │  │  └─ sign-up/page.tsx
-         │  ├─ dashboard/page.tsx
-         │  ├─ tokens/page.tsx
-         │  ├─ messages/
-         │  │  ├─ page.tsx
-         │  │  └─ new/page.tsx
+         │  │  └─ sign-in/page.tsx
+         │  ├─ user/
+         │  │  ├─ layout.tsx           # guard require-auth (area user)
+         │  │  ├─ dashboard/page.tsx   # summary message user login
+         │  │  ├─ slack-token/page.tsx # kelola token PERSONAL milik user
+         │  │  └─ message/page.tsx     # compose message
          │  └─ admin/
-         │     ├─ layout.tsx      # guard require-admin
-         │     ├─ dashboard/page.tsx
-         │     └─ users/page.tsx
+         │     ├─ layout.tsx           # guard require-admin
+         │     ├─ dashboard/page.tsx   # summary message seluruh user
+         │     ├─ users/page.tsx       # manage users
+         │     └─ slack-token/page.tsx # manage slack token
          ├─ lib/                  # api client (fetcher), query-client, auth-client
          ├─ components/ui/        # shadcn/ui
          └─ features/             # form, table, hooks per fitur (auth, tokens, messages, admin)
@@ -326,24 +344,55 @@ root/
 
 ## 7. Kontrak API (`/api/*`)
 
-| Method | Path                           | Auth         | Deskripsi                                               |
-| ------ | ------------------------------ | ------------ | ------------------------------------------------------- |
-| `*`    | `/api/auth/*`                  | —            | Better Auth handler (sign-in/up/out, session)           |
-| GET    | `/api/me`                      | user         | Profil + role user aktif                                |
-| GET    | `/api/tokens`                  | user         | List token milik user (tanpa nilai token)               |
-| POST   | `/api/tokens`                  | user         | Tambah token (validasi `auth.test`, simpan terenkripsi) |
-| PATCH  | `/api/tokens/:id`              | user (owner) | Update label token                                      |
-| DELETE | `/api/tokens/:id`              | user (owner) | Hapus token                                             |
-| GET    | `/api/slack/:tokenId/channels` | user (owner) | Proxy `conversations.list`                              |
-| GET    | `/api/slack/:tokenId/users`    | user (owner) | Proxy `users.list`                                      |
-| GET    | `/api/messages`                | user         | List message milik user + status                        |
-| GET    | `/api/messages/:id`            | user (owner) | Detail message + status per target                      |
-| POST   | `/api/messages`                | user         | Buat message (kirim langsung / jadwal) + targets        |
-| DELETE | `/api/messages/:id`            | user (owner) | Batalkan/hapus message (jika belum terkirim)            |
-| GET    | `/api/admin/users`             | admin        | List semua user                                         |
-| PATCH  | `/api/admin/users/:id`         | admin        | Ubah role / ban user                                    |
+API dikelompokkan mengikuti route frontend: **`/api/auth`**, **`/api/admin/*`** (role admin), dan **`/api/users/*`** (user login). Tiap grup punya beberapa sub-endpoint konkret di bawahnya.
 
-> Semua body divalidasi dengan schema dari `pkg/validations`. Ownership dicek server-side (cegah IDOR). Endpoint bulk send & auth diberi rate limit.
+### 7.1 Auth
+
+| Method | Path          | Auth | Deskripsi                                     |
+| ------ | ------------- | ---- | --------------------------------------------- |
+| `*`    | `/api/auth/*` | —    | Better Auth handler (sign-in/out, session)    |
+| GET    | `/api/me`     | user | Profil + role user aktif                      |
+
+### 7.2 User (`/api/users/*`) — melayani `/user/*`
+
+| Method | Path                                 | Auth         | Deskripsi                                           |
+| ------ | ------------------------------------ | ------------ | -------------------------------------------------- |
+| GET    | `/api/users/dashboard`               | user         | Summary user login (total pesan, pending, terkirim) |
+| GET    | `/api/users/message`                 | user         | List message milik user + status                    |
+| POST   | `/api/users/message`                 | user         | Buat message (kirim langsung / jadwal) + targets    |
+| GET    | `/api/users/message/:id`             | user (owner) | Detail message + status per target                  |
+| DELETE | `/api/users/message/:id`             | user (owner) | Batalkan/hapus message (jika belum terkirim)        |
+| GET    | `/api/users/slack-token`             | user         | List token yang bisa dipakai user: PERSONAL miliknya + semua SHARED |
+| POST   | `/api/users/slack-token`             | user         | Tambah token PERSONAL (validasi `auth.test`, encrypt) |
+| PATCH  | `/api/users/slack-token/:id`         | user (owner) | Update label token PERSONAL miliknya                 |
+| DELETE | `/api/users/slack-token/:id`         | user (owner) | Hapus token PERSONAL miliknya                        |
+| GET    | `/api/users/slack/:tokenId/channels` | user         | Proxy `conversations.list` (untuk pilih penerima)   |
+| GET    | `/api/users/slack/:tokenId/users`    | user         | Proxy `users.list` (untuk pilih penerima)           |
+
+> `GET /api/users/slack-token` mengembalikan token PERSONAL milik user **dan** token SHARED (read-only). Mutasi (`POST`/`PATCH`/`DELETE`) di grup user **hanya** untuk token PERSONAL miliknya; token SHARED dikelola admin (§7.3). Endpoint `slack/*` proxy dipakai compose untuk memilih penerima — `:tokenId` harus lolos cek akses (PERSONAL milik user atau SHARED).
+
+### 7.3 Admin (`/api/admin/*`) — melayani `/admin/*`
+
+| Method | Path                          | Auth  | Deskripsi                                               |
+| ------ | ----------------------------- | ----- | ------------------------------------------------------- |
+| GET    | `/api/admin/dashboard`        | admin | Summary seluruh user (total pesan, pending, per status) |
+| GET    | `/api/admin/users`            | admin | List semua user                                         |
+| PATCH  | `/api/admin/users/:id`        | admin | Ubah role / ban user                                    |
+| GET    | `/api/admin/slack-token`      | admin | List semua token SHARED (tanpa nilai token)             |
+| POST   | `/api/admin/slack-token`      | admin | Tambah token SHARED (validasi `auth.test`, encrypt)     |
+| PATCH  | `/api/admin/slack-token/:id`  | admin | Update label token SHARED                               |
+| DELETE | `/api/admin/slack-token/:id`  | admin | Hapus token SHARED                                       |
+
+> Semua body divalidasi dengan schema dari `pkg/validations`. Ownership/role dicek server-side (cegah IDOR). Endpoint bulk send (`POST /api/users/message`) & auth diberi rate limit.
+
+### 7.4 Perilaku saat token dihapus
+
+Menghapus token (PERSONAL via §7.2 atau SHARED via §7.3) **tidak** menghapus message terkait. Dalam satu transaksi dengan delete token, service:
+
+1. Set semua message ber-status `SCHEDULED` (atau `DRAFT`) yang memakai token itu → `CANCELLED`.
+2. `slackTokenId` di-set `null` otomatis (relasi `onDelete: SetNull` di §5).
+
+Hasilnya message terjadwal tercabut dari job runner dan bisa **diedit ulang user** (pilih token baru + reschedule). Message yang sudah `SENT`/`PARTIALLY_FAILED`/`FAILED` tidak diubah (riwayat tetap; `slackTokenId` jadi null saja).
 
 ---
 
@@ -360,11 +409,12 @@ root/
 
 Struktur folder **mirror** dengan path URL. Setiap segmen route = satu folder di bawah `src/app/`, dan komponen halaman ada di `page.tsx` di folder tersebut.
 
-| Route              | File                               |
-| ------------------ | ---------------------------------- |
-| `/auth/sign-in`    | `src/app/auth/sign-in/page.tsx`    |
-| `/admin/dashboard` | `src/app/admin/dashboard/page.tsx` |
-| `/messages/new`    | `src/app/messages/new/page.tsx`    |
+| Route                | File                                 |
+| -------------------- | ------------------------------------ |
+| `/auth/sign-in`      | `src/app/auth/sign-in/page.tsx`      |
+| `/admin/dashboard`   | `src/app/admin/dashboard/page.tsx`   |
+| `/admin/slack-token` | `src/app/admin/slack-token/page.tsx` |
+| `/user/message`      | `src/app/user/message/page.tsx`      |
 
 Aturan:
 
@@ -377,18 +427,17 @@ Aturan:
 
 ### 8.2 Daftar Halaman
 
-| Route              | File                               | Akses  | Deskripsi                                                                                       |
-| ------------------ | ---------------------------------- | ------ | ----------------------------------------------------------------------------------------------- |
-| `/auth/sign-in`    | `src/app/auth/sign-in/page.tsx`    | publik | Form email + password (react-hook-form + zodResolver)                                           |
-| `/auth/sign-up`    | `src/app/auth/sign-up/page.tsx`    | publik | Form registrasi email + password                                                                |
-| `/dashboard`       | `src/app/dashboard/page.tsx`       | user   | Ringkasan (jumlah token, message terjadwal/terkirim)                                            |
-| `/tokens`          | `src/app/tokens/page.tsx`          | user   | Kelola Slack token (tambah/hapus, uji koneksi)                                                  |
-| `/messages`        | `src/app/messages/page.tsx`        | user   | List message + status (react-table), tombol compose                                             |
-| `/messages/new`    | `src/app/messages/new/page.tsx`    | user   | Compose: pilih token → pilih channel/user (fetch Slack) → tulis pesan → kirim sekarang / jadwal |
-| `/admin/dashboard` | `src/app/admin/dashboard/page.tsx` | admin  | Ringkasan sistem                                                                                |
-| `/admin/users`     | `src/app/admin/users/page.tsx`     | admin  | Kelola user & role                                                                              |
+| Route                | File                                 | Akses  | Deskripsi                                                                                       |
+| -------------------- | ------------------------------------ | ------ | ----------------------------------------------------------------------------------------------- |
+| `/auth/sign-in`      | `src/app/auth/sign-in/page.tsx`      | publik | Form email + password (react-hook-form + zodResolver)                                           |
+| `/user/dashboard`    | `src/app/user/dashboard/page.tsx`    | user   | Summary message user login (total pesan, pending, terkirim)                                      |
+| `/user/slack-token`  | `src/app/user/slack-token/page.tsx`  | user   | Kelola token PERSONAL (tambah/hapus, uji koneksi via `auth.test`)                               |
+| `/user/message`      | `src/app/user/message/page.tsx`      | user   | Compose: pilih token (PERSONAL/SHARED) → pilih channel/user (fetch Slack) → tulis pesan → kirim / jadwal |
+| `/admin/dashboard`   | `src/app/admin/dashboard/page.tsx`   | admin  | Summary message seluruh user (total pesan, pending, per status)                                 |
+| `/admin/users`       | `src/app/admin/users/page.tsx`       | admin  | Kelola user & role                                                                              |
+| `/admin/slack-token` | `src/app/admin/slack-token/page.tsx` | admin  | Kelola Slack token (tambah/hapus, uji koneksi via `auth.test`)                                  |
 
-Guard akses via `layout.tsx` per segmen: `src/app/layout.tsx` (require auth untuk area app), `src/app/admin/layout.tsx` (require role admin).
+Guard akses via `layout.tsx` per segmen: `src/app/user/layout.tsx` (require auth untuk area user), `src/app/admin/layout.tsx` (require role admin).
 
 ---
 
@@ -448,3 +497,7 @@ Sudah ada di `apps/backend/.env` & divalidasi `pkg/env`:
 
 - Batas maksimum target per bulk message & strategi retry saat sebagian gagal.
 - Apakah perlu preview render Slack `mrkdwn` di compose (nice-to-have).
+- ~~**Kepemilikan Slack token**~~ **(final)**: token punya 2 tipe — `SHARED` (dibuat admin, `userId` null, dipakai semua user) & `PERSONAL` (dibuat user, `userId` = pemilik, hanya untuk dia). Lihat model §5 (`SlackTokenType`), API user §7.2 (CRUD PERSONAL + list gabungan) & admin §7.3 (CRUD SHARED). Saat compose, cek akses `:tokenId` = PERSONAL milik user **atau** SHARED.
+- ~~**Token dihapus saat ada message terjadwal**~~ **(final)**: message terjadwal di-`CANCELLED` (bukan diblok/dihapus) agar user bisa edit ulang. Lihat §5 (`MessageStatus.CANCELLED`, `slackTokenId` nullable + `onDelete: SetNull`) & §7.4.
+- **Naming singular vs plural**: frontend memakai `/user/*` (singular), backend `/api/users/*` (plural) — sesuai permintaan. Pertahankan konsisten atau samakan salah satu.
+- **Sign-up**: route `/auth/sign-up` dihapus dari daftar halaman. Perlu dipastikan apakah registrasi user dilakukan hanya oleh admin (via `/admin/users`) atau ada jalur self sign-up.
