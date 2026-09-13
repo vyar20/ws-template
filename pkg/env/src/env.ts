@@ -29,9 +29,7 @@ export const env = (() => {
   const parsed = envSchema.safeParse(Bun.env)
 
   if (!parsed.success) {
-    console.error(
-      `Invalid environtment variables: ${JSON.stringify(parsed.error.message, null, 2)}`
-    )
+    console.log(`Invalid environtment variables: ${parsed.error.message}`)
 
     process.exit(1)
   }
