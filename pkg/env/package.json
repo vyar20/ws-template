@@ -1,0 +1,15 @@
+{
+    "name": "@repo/env",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "del": "rm -rf node_modules dist"
+    },
+    "exports": {
+        ".": "./src/env.ts"
+    },
+    "devDependencies": {
+        "@repo/config": "workspace:*"
+    }
+}

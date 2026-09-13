@@ -1,0 +1,19 @@
+{
+    "name": "@repo/config",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "del": "rm -rf node_modules dist"
+    },
+    "exports": {
+        "./tsconfig": "./tsconfig.json",
+        "./eslint": "./eslint.ts",
+        "./prettier": "./prettier.ts"
+    },
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "prettier-plugin-tailwindcss": "^0.8.1",
+        "typescript-eslint": "^8.70.0"
+    }
+}

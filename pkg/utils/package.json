@@ -1,0 +1,15 @@
+{
+    "name": "@repo/utils",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "del": "rm -rf node_modules dist"
+    },
+    "exports": {
+        ".": "./src/utils.ts"
+    },
+    "devDependencies": {
+        "@repo/config": "workspace:*"
+    }
+}

@@ -1,0 +1,24 @@
+{
+    "name": "@repo/backend",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "NODE_ENV=development bun --hot src/app-dev.ts",
+        "start": "NODE_ENV=production bun --hot src/app-prod.ts",
+        "db:push": "NODE_ENV=development bun prisma db push",
+        "db:gen": "NODE_ENV=development bun prisma generate",
+        "db:std": "NODE_ENV=development bun prisma studio",
+        "del": "rm -rf node_modules dist"
+    },
+    "dependencies": {
+        "@hono/node-server": "^2.1.1",
+        "@prisma/client": "^7",
+        "@repo/env": "workspace:*",
+        "@repo/utils": "workspace:*"
+    },
+    "devDependencies": {
+        "@repo/config": "workspace:*",
+        "prisma": "^7"
+    }
+}
